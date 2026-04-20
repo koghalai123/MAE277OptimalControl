@@ -1,5 +1,9 @@
 import numpy as np
 
+import pandas as pd
+import matplotlib.pyplot as plt
+from pandas.plotting import table
+
 
 
 x=np.array([-2,0,2,4,6,8,10,12,14])
@@ -8,6 +12,9 @@ x_train = x[:6]
 y_train = y[:6]
 x_test = x[6:]
 y_test = y[6:]
+
+def to_sci(x):
+    return f"{x:.3e}"  # 4 sig figs in scientific notation
 
 
 #Part 1
@@ -22,12 +29,14 @@ theta = P_inv @ y_train
 y_train_pred = P @ theta
 cost_train = np.sum((y_train - y_train_pred)**2)
 print("First order training cost:", cost_train)
+first_order_train = cost_train
 
 # Calculate least squares cost on test data
 P_test = np.array([x_test**0, x_test**1]).T
 y_test_pred = P_test @ theta
 cost_test = np.sum((y_test - y_test_pred)**2)
 print("First order test cost:", cost_test)
+first_order_test = cost_test
 
 
 #Part 2
@@ -39,15 +48,18 @@ P_inv = np.linalg.pinv(P)
 theta = P_inv @ y_train
 
 # Calculate least squares cost on training data
+# Save table data to CSV
 y_train_pred = P @ theta
 cost_train = np.sum((y_train - y_train_pred)**2)
 print("Second order training cost:", cost_train)
+second_order_train = cost_train
 
 # Calculate least squares cost on test data
 P_test = np.array([x_test**0, x_test**1, x_test**2]).T
 y_test_pred = P_test @ theta
 cost_test = np.sum((y_test - y_test_pred)**2)
 print("Second order test cost:", cost_test)
+second_order_test = cost_test
 
 
 #Part 3
@@ -62,11 +74,71 @@ theta = P_inv @ y_train
 y_train_pred = P @ theta
 cost_train = np.sum((y_train - y_train_pred)**2)
 print("Third order training cost:", cost_train)
+third_order_train = cost_train
 
 # Calculate least squares cost on test data
 P_test = np.array([x_test**0, x_test**1, x_test**2, x_test**3]).T
 y_test_pred = P_test @ theta
 cost_test = np.sum((y_test - y_test_pred)**2)
 print("Third order test cost:", cost_test)
+third_order_test = cost_test
 
-print("done")
+
+# Create table of errors with 4 sig figs and scientific notation
+def to_sci(x):
+    return f"{x:.3e}"  # 4 sig figs in scientific notation
+
+
+# Save table data and model parameters to CSV
+data = {
+    'Model Order': ['First', 'Second', 'Third'],
+    'Theta': [
+        ', '.join([to_sci(v) for v in np.linalg.pinv(np.array([x_train**0, x_train**1]).T) @ y_train]),
+        ', '.join([to_sci(v) for v in np.linalg.pinv(np.array([x_train**0, x_train**1, x_train**2]).T) @ y_train]),
+        ', '.join([to_sci(v) for v in np.linalg.pinv(np.array([x_train**0, x_train**1, x_train**2, x_train**3]).T) @ y_train])
+    ],
+    'Training Error': [to_sci(first_order_train), to_sci(second_order_train), to_sci(third_order_train)],
+    'Test Error': [to_sci(first_order_test), to_sci(second_order_test), to_sci(third_order_test)]
+}
+df = pd.DataFrame(data)
+df.to_csv('errorTable.csv', index=False)
+
+# Display and save table as image (without Theta column)
+df_display = df.drop(columns=['Theta'])
+fig, ax = plt.subplots(figsize=(6, 1.5))
+ax.axis('off')
+tbl = ax.table(cellText=df_display.values, colLabels=df_display.columns, loc='center', cellLoc='center', colWidths=[0.35]*len(df_display.columns))
+tbl.auto_set_font_size(False)
+tbl.set_fontsize(12)
+tbl.scale(1.0, 1.2)
+plt.savefig('errorTable.png', bbox_inches='tight')
+plt.show()
+
+# Plot fits for each model order with actual data
+plt.figure(figsize=(4, 2.5))
+plt.scatter(x, y, color='black', label='Actual Data')
+
+# First order fit
+P_full_1 = np.array([x**0, x**1]).T
+theta_1 = np.linalg.pinv(np.array([x_train**0, x_train**1]).T) @ y_train
+y_fit_1 = P_full_1 @ theta_1
+plt.plot(x, y_fit_1, label='First Order Fit', linestyle='--')
+
+# Second order fit
+P_full_2 = np.array([x**0, x**1, x**2]).T
+theta_2 = np.linalg.pinv(np.array([x_train**0, x_train**1, x_train**2]).T) @ y_train
+y_fit_2 = P_full_2 @ theta_2
+plt.plot(x, y_fit_2, label='Second Order Fit', linestyle='-.')
+
+# Third order fit
+P_full_3 = np.array([x**0, x**1, x**2, x**3]).T
+theta_3 = np.linalg.pinv(np.array([x_train**0, x_train**1, x_train**2, x_train**3]).T) @ y_train
+y_fit_3 = P_full_3 @ theta_3
+plt.plot(x, y_fit_3, label='Third Order Fit', linestyle=':')
+
+plt.xlabel('x')
+plt.ylabel('y')
+plt.legend()
+plt.grid(True)
+plt.savefig('modelPlots.png', bbox_inches='tight')
+plt.show()
