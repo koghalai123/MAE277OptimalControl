@@ -1,0 +1,21 @@
+figure:
+  width_single: 3.5      # inches, single-axes figure
+  width_double: 7.0      # inches, two-axes figure
+  height: 5.0            # inches
+  dpi: 150
+
+font:
+  size: 12               # points, applied globally via rcParams
+
+axes:
+  bottom_margin: 0.35    # fraction of figure height reserved for legend (subplots_adjust bottom)
+
+legend:
+  fontsize: 12
+  loc: lower center
+  bbox_to_anchor: [0.5, 0.02]   # figure coordinates (requires bbox_transform=fig.transFigure)
+  ncol: 2                        # default; use 1 for single-entry legends
+
+savefig:
+  dpi: 150
+  # bbox_inches: do NOT use 'tight' — it overrides subplots_adjust
