@@ -40,14 +40,8 @@ print(f"\nA_aug =\n{A}\nB_aug =\n{B}")
 
 # ── (c)/(d) QP matrix builder ─────────────────────────────────────────────────
 def form_qp(A, B, Q, R, P, xlim, ulim, N):
-    """Return H, L, G, W, T, IMPC for the MPC QP.
-
-    min  1/2 U'HU + (L z0)'U   s.t. G U <= W + T z0
-    Δu0 = IMPC @ U
-    """
     n, m_ = A.shape[0], B.shape[1]
 
-    # Prediction: Z = Psi z0 + Gamma U
     Psi   = np.zeros((n*N, n))
     Gamma = np.zeros((n*N, m_*N))
     Apow  = A.copy()
@@ -65,7 +59,7 @@ def form_qp(A, B, Q, R, P, xlim, ulim, N):
     H = (H + H.T) / 2
     L = Gamma.T @ Qbar @ Psi
 
-    # Constraints: state bounds and Δu bounds
+    # Constraints
     xmax = np.tile(xlim["max"], N)
     xmin = np.tile(xlim["min"], N)
     umax = np.tile([ulim["max"]], N)
@@ -88,7 +82,6 @@ def msd(_, x, u, mp, kp):
 
 
 def run_mpc(mp=1.0, kp=1.0, u_lim=0.2):
-    """Closed-loop MPC simulation. Returns t, x1, u, r arrays."""
     N     = 15
     Q_mpc = np.diag([0., 0., 1., 0., 0.])
     R_mpc = np.array([[1.]])
@@ -98,16 +91,20 @@ def run_mpc(mp=1.0, kp=1.0, u_lim=0.2):
     lN   = 1e6
     xlim = {"max": np.array([lN, lN, lN,  u_lim,  0.2]),
             "min": np.array([-lN,-lN,-lN, -u_lim, -0.2])}
-    ulim = {"max": lN, "min": -lN}   # Δu unconstrained
+    ulim = {"max": lN, "min": -lN} 
 
     H, L, G, W, T, IMPC = form_qp(A, B, Q_mpc, R_mpc, P_mpc, xlim, ulim, N)
 
-    refs = [0.15, -0.15, 0.19, -0.19, -0.25, 0.15, -0.1, 0.0]
-    hold = 40
+    rng   = np.random.default_rng(2)
+    vals  = rng.uniform(-0.19, 0.19, 7).tolist()
+    holds = rng.integers(25, 60, 7).tolist()
+    vals.insert(4, -0.25); holds.insert(4, 70)   # infeasible command in the middle
+    refs_holds = list(zip(vals, holds))
+
     x_c, u_c, dxprev, t_now = np.zeros(2), 0.0, np.zeros(2), 0.0
     t_h, x1_h, u_h, r_h = [], [], [], []
 
-    for r in refs:
+    for r, hold in refs_holds:
         for _ in range(hold):
             z   = np.array([dxprev[0], dxprev[1], x_c[0]-r, u_c, x_c[0]])
             q   = L @ z
@@ -130,7 +127,7 @@ def run_mpc(mp=1.0, kp=1.0, u_lim=0.2):
             x_c = x_new; t_now += Ts
 
     t_h.append(t_now); x1_h.append(x_c[0])
-    u_h.append(u_c);   r_h.append(refs[-1])
+    u_h.append(u_c);   r_h.append(refs_holds[-1][0])
     return tuple(map(np.array, (t_h, x1_h, u_h, r_h)))
 
 
@@ -143,56 +140,87 @@ print("Running (f) mismatch |u|≤0.25 ...")
 t_f2, x1_f2, u_f2, r_f2 = run_mpc(0.8, 1.2, 0.25)
 
 # ── Plot helpers ──────────────────────────────────────────────────────────────
-W_D  = p["figure"]["width_double"]
+W_S  = p["figure"]["width_single"]
 H_FG = p["figure"]["height"]
 LEG  = p["legend"]
 BOT  = p["axes"]["bottom_margin"]
 SDPI = p["savefig"]["dpi"]
 
-# Different shades of the same color per dataset
-c_x1 = ["#1f4e79", "#2e75b6", "#9dc3e6"]   # blue family
-c_r  = ["#1a1a1a", "#555555", "#aaaaaa"]   # grey family
-c_u  = ["#1e5e1e", "#2e8b2e", "#82c782"]   # green family
-c_bd = "#cc0000"                            # constraint bound
+c_bd  = "#cc0000"
+c_e   = "#1f4e79"               # part (e): blue
+c_eg  = "#1e5e1e"               # part (e): green
+c_f   = ["#2e75b6", "#9dc3e6"]  # part (f): two blue shades
+c_fg  = ["#2e8b2e", "#82c782"]  # part (f): two green shades
+c_fbd = ["#cc0000", "#cc6600"]  # part (f): constraint bound per case
+c_ref = "#555555"
 
-titles = ["(e) Nominal", "(f) Mismatch |u|≤0.20", "(f) Mismatch |u|≤0.25"]
-sets   = [(t_e,  x1_e,  u_e,  r_e,  0.20),
-          (t_f1, x1_f1, u_f1, r_f1, 0.20),
-          (t_f2, x1_f2, u_f2, r_f2, 0.25)]
+f_data   = [{"t": t_f1, "x1": x1_f1, "u": u_f1, "r": r_f1, "ul": 0.20},
+            {"t": t_f2, "x1": x1_f2, "u": u_f2, "r": r_f2, "ul": 0.25}]
+f_labels = ["$|u|{\\leq}0.20$", "$|u|{\\leq}0.25$"]
 
-def make_fig(nrows=1):
-    fig, axes = plt.subplots(nrows, 3, figsize=(W_D*1.5, H_FG))
+def new_fig():
+    fig, ax = plt.subplots(figsize=(W_S, H_FG))
     fig.subplots_adjust(bottom=BOT)
-    return fig, axes
+    return fig, ax
 
-# ── Figure 1: position ────────────────────────────────────────────────────────
-fig1, axes1 = make_fig()
-for i, (ax, (t, x1, u, r, ul)) in enumerate(zip(axes1, sets)):
-    ax.plot(t, x1, color=c_x1[i], label="$x_1$")
-    ax.step(t, r,  color=c_r[i], linestyle='--', where='post', label="$r$")
-    ax.axhline( 0.2, color=c_bd, linestyle=':', linewidth=1)
-    ax.axhline(-0.2, color=c_bd, linestyle=':', linewidth=1, label="$x_1{=}\\pm0.2$")
-    ax.set_title(titles[i]); ax.set_xlabel("Time (s)"); ax.grid(True)
-    if i == 0: ax.set_ylabel("Position $x_1$")
+def leg(fig, ax):
     ax.legend(fontsize=LEG["fontsize"], loc=LEG["loc"],
               bbox_to_anchor=LEG["bbox_to_anchor"],
-              bbox_transform=fig1.transFigure, ncol=LEG["ncol"])
-fig1.savefig(HERE / "mpc_position.png", dpi=SDPI)
+              bbox_transform=fig.transFigure, ncol=LEG["ncol"])
 
-# ── Figure 2: control input ───────────────────────────────────────────────────
-fig2, axes2 = make_fig()
-for i, (ax, (t, x1, u, r, ul)) in enumerate(zip(axes2, sets)):
-    ax.step(t, u, color=c_u[i], where='post', label="$u$")
-    ax.axhline( ul, color=c_bd, linestyle=':', linewidth=1)
-    ax.axhline(-ul, color=c_bd, linestyle=':', linewidth=1, label=f"$u{{=}}\\pm{ul}$")
-    ax.set_title(titles[i]); ax.set_xlabel("Time (s)"); ax.grid(True)
-    if i == 0: ax.set_ylabel("Control $u$")
-    ax.legend(fontsize=LEG["fontsize"], loc=LEG["loc"],
-              bbox_to_anchor=LEG["bbox_to_anchor"],
-              bbox_transform=fig2.transFigure, ncol=LEG["ncol"])
-fig2.savefig(HERE / "mpc_control.png", dpi=SDPI)
+# ── (e) position ──────────────────────────────────────────────────────────────
+fig, ax = new_fig()
+ax.plot(t_e, x1_e, color=c_e, label="$x_1$")
+ax.step(t_e, r_e, color=c_ref, linestyle='--', where='post', label="$r$")
+ax.axhline( 0.2, color=c_bd, linestyle=':', linewidth=1)
+ax.axhline(-0.2, color=c_bd, linestyle=':', linewidth=1, label="$x_1{=}\\pm0.2$")
+ax.set_title("(e) Position"); ax.set_xlabel("Time (s)"); ax.set_ylabel("Position (m)"); ax.grid(True)
+leg(fig, ax); fig.savefig(HERE / "mpc_e_position.png", dpi=SDPI)
 
-print("Plots saved: mpc_position.png, mpc_control.png")
+# ── (e) tracking error ────────────────────────────────────────────────────────
+fig, ax = new_fig()
+ax.plot(t_e, x1_e - r_e, color=c_e, label="$e = x_1 - r$")
+ax.axhline(0, color='k', linestyle='--', linewidth=0.8, label="$e = 0$")
+ax.set_title("(e) Tracking Error"); ax.set_xlabel("Time (s)"); ax.set_ylabel("Error (m)"); ax.grid(True)
+leg(fig, ax); fig.savefig(HERE / "mpc_e_error.png", dpi=SDPI)
+
+# ── (e) control ───────────────────────────────────────────────────────────────
+fig, ax = new_fig()
+ax.step(t_e, u_e, color=c_eg, where='post', label="$u$")
+ax.axhline( 0.2, color=c_bd, linestyle=':', linewidth=1)
+ax.axhline(-0.2, color=c_bd, linestyle=':', linewidth=1, label="$u{=}\\pm0.2$")
+ax.set_title("(e) Control"); ax.set_xlabel("Time (s)"); ax.set_ylabel("Control (N)"); ax.grid(True)
+leg(fig, ax); fig.savefig(HERE / "mpc_e_control.png", dpi=SDPI)
+
+# ── (f) position ──────────────────────────────────────────────────────────────
+fig, ax = new_fig()
+for i, d in enumerate(f_data):
+    ax.plot(d["t"], d["x1"], color=c_f[i], label=f"$x_1$ ({f_labels[i]})")
+ax.step(f_data[0]["t"], f_data[0]["r"], color=c_ref, linestyle='--', where='post', label="$r$")
+ax.axhline( 0.2, color=c_bd, linestyle=':', linewidth=1)
+ax.axhline(-0.2, color=c_bd, linestyle=':', linewidth=1, label="$x_1{=}\\pm0.2$")
+ax.set_title("(f) Position"); ax.set_xlabel("Time (s)"); ax.set_ylabel("Position (m)"); ax.grid(True)
+leg(fig, ax); fig.savefig(HERE / "mpc_f_position.png", dpi=SDPI)
+
+# ── (f) tracking error ────────────────────────────────────────────────────────
+fig, ax = new_fig()
+for i, d in enumerate(f_data):
+    ax.plot(d["t"], d["x1"] - d["r"], color=c_f[i], label=f"$e$ ({f_labels[i]})")
+ax.axhline(0, color='k', linestyle='--', linewidth=0.8, label="$e = 0$")
+ax.set_title("(f) Tracking Error"); ax.set_xlabel("Time (s)"); ax.set_ylabel("Error (m)"); ax.grid(True)
+leg(fig, ax); fig.savefig(HERE / "mpc_f_error.png", dpi=SDPI)
+
+# ── (f) control ───────────────────────────────────────────────────────────────
+fig, ax = new_fig()
+for i, d in enumerate(f_data):
+    ax.step(d["t"], d["u"], color=c_fg[i], where='post', label=f"$u$ ({f_labels[i]})")
+    ax.axhline( d["ul"], color=c_fbd[i], linestyle=':', linewidth=1, label=f"$\\pm{d['ul']}$")
+    ax.axhline(-d["ul"], color=c_fbd[i], linestyle=':', linewidth=1)
+ax.set_title("(f) Control"); ax.set_xlabel("Time (s)"); ax.set_ylabel("Control (N)"); ax.grid(True)
+leg(fig, ax); fig.savefig(HERE / "mpc_f_control.png", dpi=SDPI)
+
+print("Plots saved: mpc_e_position.png  mpc_e_error.png  mpc_e_control.png")
+print("             mpc_f_position.png  mpc_f_error.png  mpc_f_control.png")
 
 # ── Discussion ────────────────────────────────────────────────────────────────
 print("""
